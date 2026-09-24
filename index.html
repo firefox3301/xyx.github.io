@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#111827">
+<title>车辆二维码生成器</title>
+<style>
+*{box-sizing:border-box}
+body{
+    margin:0;
+    min-height:100vh;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;
+    background:linear-gradient(135deg,#eef2ff,#f8fafc);
+    color:#111827;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    padding:20px;
+}
+.card{
+    width:min(100%,520px);
+    background:#fff;
+    border-radius:22px;
+    padding:28px;
+    box-shadow:0 12px 40px rgba(0,0,0,.10);
+}
+h1{
+    margin:0 0 8px;
+    text-align:center;
+    font-size:26px;
+}
+.subtitle{
+    text-align:center;
+    color:#6b7280;
+    font-size:14px;
+    margin-bottom:24px;
+}
+label{
+    display:block;
+    font-size:15px;
+    font-weight:600;
+    margin-bottom:8px;
+}
+input{
+    width:100%;
+    height:50px;
+    border:1px solid #d1d5db;
+    border-radius:12px;
+    padding:0 15px;
+    font-size:18px;
+    outline:none;
+}
+input:focus{border-color:#4f46e5;box-shadow:0 0 0 3px rgba(79,70,229,.12)}
+button{
+    width:100%;
+    height:50px;
+    border:0;
+    border-radius:12px;
+    margin-top:14px;
+    background:#111827;
+    color:#fff;
+    font-size:16px;
+    font-weight:600;
+    cursor:pointer;
+}
+button:active{transform:scale(.99)}
+.download{
+    background:#4f46e5;
+    margin-top:10px;
+}
+.info{
+    margin-top:18px;
+    padding:14px;
+    border-radius:12px;
+    background:#f3f4f6;
+    font-size:14px;
+    line-height:1.7;
+    word-break:break-all;
+}
+.result{
+    display:none;
+    text-align:center;
+    margin-top:24px;
+}
+.qr-wrap{
+    display:inline-flex;
+    padding:20px;
+    background:#fff;
+    border:1px solid #e5e7eb;
+    border-radius:16px;
+}
+#qrcode canvas,#qrcode img{
+    display:block;
+    width:320px;
+    height:320px;
+    image-rendering:pixelated;
+}
+.number{
+    margin-top:14px;
+    font-size:20px;
+    font-weight:700;
+    letter-spacing:2px;
+}
+.error{
+    display:none;
+    margin-top:12px;
+    color:#dc2626;
+    font-size:14px;
+}
+@media(max-width:480px){
+    .card{padding:22px;border-radius:18px}
+    h1{font-size:23px}
+    #qrcode canvas,#qrcode img{width:260px;height:260px}
+}
+</style>
+</head>
+<body>
+
+<div class="card">
+    <h1>车辆二维码生成器</h1>
+    <div class="subtitle">QR Version 4 · Error Correction L · Mask 1 · Border 4</div>
+
+    <label for="vehicleNumber">车辆编号</label>
+    <input
+        id="vehicleNumber"
+        type="text"
+        inputmode="numeric"
+        maxlength="20"
+        placeholder="例如：066773"
+        autocomplete="off"
+    >
+
+    <button onclick="generateQR()">生成二维码</button>
+
+    <div id="error" class="error"></div>
+
+    <div id="result" class="result">
+        <div class="qr-wrap">
+            <div id="qrcode"></div>
+        </div>
+
+        <div id="displayNumber" class="number"></div>
+
+        <button class="download" onclick="downloadQR()">
+            下载二维码 PNG
+        </button>
+
+        <div class="info">
+            <div><strong>车辆编号：</strong><span id="infoNumber"></span></div>
+            <div><strong>二维码内容：</strong><span id="infoUrl"></span></div>
+        </div>
+    </div>
+</div>
+
+<!-- qrcode-generator：支持指定 QR 版本、纠错等级及 Mask -->
+<script>
+/*
+ * QR Code generator for JavaScript
+ * Based on Kazuhiko Arase's QR Code implementation.
+ * MIT License.
+ *
+ * 本页面使用纯 JavaScript 生成二维码，无需服务器。
+ */
+(function(){
+"use strict";
+
+var QRMode={MODE_8BIT_BYTE:4};
+var QRErrorCorrectLevel={L:1,M:0,Q:3,H:2};
+
+function QR8bitByte(data){
+    this.mode=QRMode.MODE_8BIT_BYTE;
+    this.data=data;
+    this.parsedData=[];
+    for(var i=0;i<this.data.length;i++){
+        var byte=this.data.charCodeAt(i);
+        if(byte>0x10000){
+            this.parsedData.push(0xF0|(byte>>18));
+            this.parsedData.push(0x80|((byte>>12)&0x3F));
+            this.parsedData.push(0x80|((byte>>6)&0x3F));
+            this.parsedData.push(0x80|(byte&0x3F));
+        }else if(byte>0x800){
+            this.parsedData.push(0xE0|(byte>>12));
+            this.parsedData.push(0x80|((byte>>6)&0x3F));
+            this.parsedData.push(0x80|(byte&0x3F));
+        }else if(byte>0x80){
+            this.parsedData.push(0xC0|(byte>>6));
+            this.parsedData.push(0x80|(byte&0x3F));
+        }else{
+            this.parsedData.push(byte);
+        }
+    }
+}
+QR8bitByte.prototype.getLength=function(){return this.parsedData.length};
+QR8bitByte.prototype.write=function(buffer){
+    for(var i=0;i<this.parsedData.length;i++) buffer.put(this.parsedData[i],8);
+};
+
+function QRBitBuffer(){this.buffer=[];this.length=0}
+QRBitBuffer.prototype.get=function(index){return ((this.buffer[Math.floor(index/8)]>>>(7-index%8))&1)==1};
+QRBitBuffer.prototype.put=function(num,length){
+    for(var i=0;i<length;i++) this.putBit(((num>>>(length-i-1))&1)==1);
+};
+QRBitBuffer.prototype.putBit=function(bit){
+    var idx=Math.floor(this.length/8);
+    if(this.buffer.length<=idx)this.buffer.push(0);
+    if(bit)this.buffer[idx]|=(0x80>>(this.length%8));
+    this.length++;
+};
+
+function QRMath(){}
+QRMath.EXP_TABLE=new Array(256);
+QRMath.LOG_TABLE=new Array(256);
+for(var i=0;i<8;i++)QRMath.EXP_TABLE[i]=1<<i;
+for(i=8;i<256;i++)QRMath.EXP_TABLE[i]=QRMath.EXP_TABLE[i-4]^QRMath.EXP_TABLE[i-5]^QRMath.EXP_TABLE[i-6]^QRMath.EXP_TABLE[i-8];
+for(i=0;i<255;i++)QRMath.LOG_TABLE[QRMath.EXP_TABLE[i]]=i;
+QRMath.glog=function(n){if(n<1)throw new Error("glog");return QRMath.LOG_TABLE[n]};
+QRMath.gexp=function(n){while(n<0)n+=255;while(n>=256)n-=255;return QRMath.EXP_TABLE[n]};
+
+function QRPolynomial(num,shift){
+    var offset=0;
+    while(offset<num.length&&num[offset]==0)offset++;
+    this.num=new Array(num.length-offset+shift);
+    for(var i=0;i<num.length-offset;i++)this.num[i]=num[i+offset];
+}
+QRPolynomial.prototype.get=function(i){return this.num[i]};
+QRPolynomial.prototype.getLength=function(){return this.num.length};
+QRPolynomial.prototype.multiply=function(e){
+    var num=new Array(this.getLength()+e.getLength()-1);
+    for(var i=0;i<num.length;i++)num[i]=0;
+    for(i=0;i<this.getLength();i++)
+        for(var j=0;j<e.getLength();j++)
+            num[i+j]^=QRMath.gexp(QRMath.glog(this.get(i))+QRMath.glog(e.get(j)));
+    return new QRPolynomial(num,0);
+};
+QRPolynomial.prototype.mod=function(e){
+    if(this.getLength()-e.getLength()<0)return this;
+    var ratio=QRMath.glog(this.get(0))-QRMath.glog(e.get(0));
+    var num=this.num.slice();
+    for(var i=0;i<e.getLength();i++)num[i]^=QRMath.gexp(QRMath.glog(e.get(i))+ratio);
+    return new QRPolynomial(num,0).mod(e);
+};
+
+function QRRSBlock(totalCount,dataCount){this.totalCount=totalCount;this.dataCount=dataCount}
+QRRSBlock.RS_BLOCK_TABLE=[
+/* Version 1 */  26, 19,
+/* Version 2 */  44, 34,
+/* Version 3 */  70, 55,
+/* Version 4 */ 100, 80
+];
+QRRSBlock.getRSBlocks=function(typeNumber,errorCorrectLevel){
+    if(typeNumber !== 4 || errorCorrectLevel !== FixedQRErrorCorrectLevel.L){
+        throw new Error("This offline generator is configured for QR Version 4 / L.");
+    }
+    return [new QRRSBlock(100,80)];
+};
+
+function QRUtil(){}
+QRUtil.getBCHTypeInfo=function(data){
+    var d=data<<10;
+    var g=0x537;
+    while(QRUtil.getBCHDigit(d)-QRUtil.getBCHDigit(g)>=0)
+        d^=(g<<(QRUtil.getBCHDigit(d)-QRUtil.getBCHDigit(g)));
+    return ((data<<10)|d)^0x5412;
+};
+QRUtil.getBCHTypeNumber=function(data){
+    var d=data<<12,g=0x1f25;
+    while(QRUtil.getBCHDigit(d)-QRUtil.getBCHDigit(g)>=0)
+        d^=(g<<(QRUtil.getBCHDigit(d)-QRUtil.getBCHDigit(g)));
+    return (data<<12)|d;
+};
+QRUtil.getBCHDigit=function(data){
+    var digit=0;
+    while(data!=0){digit++;data>>>=1}
+    return digit;
+};
+QRUtil.getPatternPosition=function(typeNumber){
+    var posTable=[
+        [],
+        [6,18],
+        [6,22],
+        [6,26],
+        [6,30],
+        [6,34],
+        [6,22,38],
+        [6,24,42],
+        [6,26,46],
+        [6,28,50],
+        [6,30,54]
+    ];
+    return posTable[typeNumber-1];
+};
+QRUtil.getMask=function(maskPattern,i,j){
+    switch(maskPattern){
+        case 0:return(i+j)%2==0;
+        case 1:return i%2==0;
+        case 2:return j%3==0;
+        case 3:return(i+j)%3==0;
+        case 4:return(Math.floor(i/2)+Math.floor(j/3))%2==0;
+        case 5:return(i*j)%2+(i*j)%3==0;
+        case 6:return((i*j)%2+(i*j)%3)%2==0;
+        case 7:return((i*j)%3+(i+j)%2)%2==0;
+        default:throw new Error("bad mask");
+    }
+};
+QRUtil.getErrorCorrectPolynomial=function(errorCorrectLength){
+    var a=new QRPolynomial([1],0);
+    for(var i=0;i<errorCorrectLength;i++)a=a.multiply(new QRPolynomial([1,QRMath.gexp(i)],0));
+    return a;
+};
+
+function QRCode(typeNumber,errorCorrectLevel){
+    this.typeNumber=typeNumber;
+    this.errorCorrectLevel=errorCorrectLevel;
+    this.modules=null;
+    this.moduleCount=0;
+    this.dataCache=null;
+    this.dataList=[];
+    this.maskPattern=1;
+}
+QRCode.prototype.addData=function(data){this.dataList.push(new QR8bitByte(data));this.dataCache=null};
+QRCode.prototype.isDark=function(row,col){return this.modules[row][col]===true};
+QRCode.prototype.make=function(){this.makeImpl(false,this.maskPattern)};
+QRCode.prototype.makeImpl=function(test,maskPattern){
+    this.moduleCount=this.typeNumber*4+17;
+    this.modules=new Array(this.moduleCount);
+    for(var row=0;row<this.moduleCount;row++){
+        this.modules[row]=new Array(this.moduleCount);
+        for(var col=0;col<this.moduleCount;col++)this.modules[row][col]=null;
+    }
+    this.setupPositionProbePattern(0,0);
+    this.setupPositionProbePattern(this.moduleCount-7,0);
+    this.setupPositionProbePattern(0,this.moduleCount-7);
+    this.setupPositionAdjustPattern();
+    this.setupTimingPattern();
+    this.setupTypeInfo(test,maskPattern);
+    if(this.typeNumber>=7)this.setupTypeNumber(test);
+    if(this.dataCache===null)this.dataCache=QRCode.createData(this.typeNumber,this.errorCorrectLevel,this.dataList);
+    this.mapData(this.dataCache,maskPattern);
+};
+QRCode.prototype.setupPositionProbePattern=function(row,col){
+    for(var r=-1;r<=7;r++){
+        if(row+r<=-1||this.moduleCount<=row+r)continue;
+        for(var c=-1;c<=7;c++){
+            if(col+c<=-1||this.moduleCount<=col+c)continue;
+            if((0<=r&&r<=6&&(c==0||c==6))||(0<=c&&c<=6&&(r==0||r==6))||(2<=r&&r<=4&&2<=c&&c<=4))
+                this.modules[row+r][col+c]=true;
+            else this.modules[row+r][col+c]=false;
+        }
+    }
+};
+QRCode.prototype.setupTimingPattern=function(){
+    for(var r=8;r<this.moduleCount-8;r++)
+        if(this.modules[r][6]===null)this.modules[r][6]=r%2==0;
+    for(var c=8;c<this.moduleCount-8;c++)
+        if(this.modules[6][c]===null)this.modules[6][c]=c%2==0;
+};
+QRCode.prototype.setupPositionAdjustPattern=function(){
+    var pos=QRUtil.getPatternPosition(this.typeNumber);
+    for(var i=0;i<pos.length;i++)
+        for(var j=0;j<pos.length;j++){
+            var row=pos[i],col=pos[j];
+            if(this.modules[row][col]!==null)continue;
+            for(var r=-2;r<=2;r++)
+                for(var c=-2;c<=2;c++)
+                    this.modules[row+r][col+c]=(Math.abs(r)==2||Math.abs(c)==2||r==0&&c==0);
+        }
+};
+QRCode.prototype.setupTypeNumber=function(test){
+    var bits=QRUtil.getBCHTypeNumber(this.typeNumber);
+    for(var i=0;i<18;i++){
+        var mod=!test&&((bits>>i)&1)==1;
+        this.modules[Math.floor(i/3)][i%3+this.moduleCount-8-3]=mod;
+        this.modules[i%3+this.moduleCount-8-3][Math.floor(i/3)]=mod;
+    }
+};
+QRCode.prototype.setupTypeInfo=function(test,maskPattern){
+    var data=(this.errorCorrectLevel<<3)|maskPattern;
+    var bits=QRUtil.getBCHTypeInfo(data);
+    for(var i=0;i<15;i++){
+        var mod=!test&&((bits>>i)&1)==1;
+        if(i<6)this.modules[i][8]=mod;
+        else if(i<8)this.modules[i+1][8]=mod;
+        else this.modules[this.moduleCount-15+i][8]=mod;
+        if(i<8)this.modules[8][this.moduleCount-i-1]=mod;
+        else if(i<9)this.modules[8][15-i-1+1]=mod;
+        else this.modules[8][15-i-1]=mod;
+    }
+    this.modules[this.moduleCount-8][8]=!test;
+};
+QRCode.prototype.mapData=function(data,maskPattern){
+    var inc=-1,row=this.moduleCount-1,bitIndex=7,byteIndex=0;
+    for(var col=this.moduleCount-1;col>0;col-=2){
+        if(col==6)col--;
+        while(true){
+            for(var c=0;c<2;c++){
+                if(this.modules[row][col-c]===null){
+                    var dark=false;
+                    if(byteIndex<data.length)dark=((data[byteIndex]>>>bitIndex)&1)==1;
+                    var mask=QRUtil.getMask(maskPattern,row,col-c);
+                    if(mask)dark=!dark;
+                    this.modules[row][col-c]=dark;
+                    bitIndex--;
+                    if(bitIndex==-1){byteIndex++;bitIndex=7}
+                }
+            }
+            row+=inc;
+            if(row<0||this.moduleCount<=row){row-=inc;inc=-inc;break}
+        }
+    }
+};
+QRCode.createData=function(typeNumber,errorCorrectLevel,dataList){
+    var rsBlocks=QRRSBlock.getRSBlocks(typeNumber,errorCorrectLevel);
+    var buffer=new QRBitBuffer();
+    for(var i=0;i<dataList.length;i++){
+        var data=dataList[i];
+        buffer.put(data.mode,4);
+        buffer.put(data.getLength(),8);
+        data.write(buffer);
+    }
+    var totalDataCount=rsBlocks.reduce(function(a,b){return a+b.dataCount},0);
+    if(buffer.length > totalDataCount*8){
+        throw new Error("code length overflow");
+    }
+    if(buffer.length+4<=totalDataCount*8)buffer.put(0,4);
+    while(buffer.length%8!=0)buffer.putBit(false);
+    while(true){
+        if(buffer.length>=totalDataCount*8)break;
+        buffer.put(0xEC,8);
+        if(buffer.length>=totalDataCount*8)break;
+        buffer.put(0x11,8);
+    }
+    var offset=0;
+    var dcdata=[];
+    var ecdata=[];
+    for(i=0;i<rsBlocks.length;i++){
+        var dcCount=rsBlocks[i].dataCount;
+        var ecCount=rsBlocks[i].totalCount-dcCount;
+        var dc=new Array(dcCount);
+        for(var j=0;j<dcCount;j++)dc[j]=buffer.buffer[offset+j];
+        offset+=dcCount;
+        dcdata.push(dc);
+        var rsPoly=QRUtil.getErrorCorrectPolynomial(ecCount);
+        var rawPoly=new QRPolynomial(dc,rsPoly.getLength()-1);
+        var modPoly=rawPoly.mod(rsPoly);
+        var ec=new Array(rsPoly.getLength()-1);
+        for(j=0;j<ec.length;j++){
+            var modIndex=j+modPoly.getLength()-ec.length;
+            ec[j]=modIndex>=0?modPoly.get(modIndex):0;
+        }
+        ecdata.push(ec);
+    }
+    var totalCodeCount=rsBlocks.reduce(function(a,b){return a+b.totalCount},0);
+    var result=[];
+    for(i=0;i<Math.max.apply(null,dcdata.map(function(a){return a.length}));i++)
+        for(j=0;j<dcdata.length;j++)if(i<dcdata[j].length)result.push(dcdata[j][i]);
+    for(i=0;i<Math.max.apply(null,ecdata.map(function(a){return a.length}));i++)
+        for(j=0;j<ecdata.length;j++)if(i<ecdata[j].length)result.push(ecdata[j][i]);
+    return result;
+};
+
+window.FixedQRCode=QRCode;
+window.FixedQRErrorCorrectLevel=QRErrorCorrectLevel;
+})();
+</script>
+
+<script>
+const BASE_URL = "http://xiaoyixinggo.com/admin/guide/app#";
+const QR_VERSION = 4;
+const MASK_PATTERN = 1;
+
+let currentCanvas = null;
+let currentNumber = null;
+
+function showError(message){
+    const el=document.getElementById("error");
+    el.textContent=message;
+    el.style.display="block";
+}
+function clearError(){
+    document.getElementById("error").style.display="none";
+}
+
+function generateQR(){
+    clearError();
+
+    let vehicleNumber=document.getElementById("vehicleNumber").value.trim();
+
+    if(!/^\d+$/.test(vehicleNumber)){
+        showError("错误：车辆编号只能输入数字。");
+        return;
+    }
+
+    vehicleNumber=vehicleNumber.padStart(6,"0");
+
+    if(vehicleNumber.length!==6){
+        showError("错误：车辆编号应为6位数字。");
+        return;
+    }
+
+    const url=BASE_URL+vehicleNumber;
+    const container=document.getElementById("qrcode");
+    container.innerHTML="";
+
+    try{
+        const qr=new FixedQRCode(QR_VERSION,FixedQRErrorCorrectLevel.L);
+        qr.maskPattern=MASK_PATTERN;
+        qr.addData(url);
+        qr.make();
+
+        const count=qr.moduleCount;
+        const border=4;
+        const moduleSize=10;
+        const size=(count+border*2)*moduleSize;
+
+        const canvas=document.createElement("canvas");
+        canvas.width=size;
+        canvas.height=size;
+        canvas.style.width="320px";
+        canvas.style.height="320px";
+
+        const ctx=canvas.getContext("2d");
+        ctx.fillStyle="#fff";
+        ctx.fillRect(0,0,size,size);
+
+        ctx.fillStyle="#000";
+        for(let r=0;r<count;r++){
+            for(let c=0;c<count;c++){
+                if(qr.isDark(r,c)){
+                    ctx.fillRect(
+                        (c+border)*moduleSize,
+                        (r+border)*moduleSize,
+                        moduleSize,
+                        moduleSize
+                    );
+                }
+            }
+        }
+
+        container.appendChild(canvas);
+        currentCanvas=canvas;
+        currentNumber=vehicleNumber;
+
+        document.getElementById("displayNumber").textContent=vehicleNumber;
+        document.getElementById("infoNumber").textContent=vehicleNumber;
+        document.getElementById("infoUrl").textContent=url;
+        document.getElementById("result").style.display="block";
+
+    }catch(e){
+        console.error(e);
+        showError("二维码生成失败：内容长度可能超过 Version 4 的容量。");
+    }
+}
+
+function downloadQR(){
+    if(!currentCanvas||!currentNumber)return;
+
+    const link=document.createElement("a");
+    link.download=currentNumber+".png";
+    link.href=currentCanvas.toDataURL("image/png");
+    link.click();
+}
+
+document.getElementById("vehicleNumber").addEventListener("keydown",function(e){
+    if(e.key==="Enter")generateQR();
+});
+</script>
+
+</body>
+</html>
